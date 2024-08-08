@@ -1,0 +1,18 @@
+# ipc: image per class, the number of synthesized images per class
+# synthesis_model: the model used for generating synthesized images
+# iteration: the total steps for optimization
+# synthesis_lr: learning rate for generating synthesized images
+# batch_real: batch size
+# init: initial point of the synthesized images ('random' or 'real'
+# dsa_strategy: the strategy of data augmentation
+# dm_threshold: generate synthesized images when the number of image of a specific class is greater than dm_threshold
+#
+ipc: 50
+synthesis_model: 'ConvNetBN'
+iteration: 20000
+synthesis_lr: 1.0
+batch_real: 256
+init: 'real'
+dsa_strategy: "color_crop_cutout_flip_scale_rotate"
+dm_threshold: 100
+dsa: True

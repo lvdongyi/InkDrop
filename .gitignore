@@ -1,0 +1,7 @@
+*/__pycache__/*
+*.7z
+results/*
+bench_datasets/*
+*.pyc
+*.pt
+*.ipynb
