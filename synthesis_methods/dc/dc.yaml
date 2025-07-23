@@ -9,12 +9,13 @@
 #
 ipc: 50
 synthesis_model: 'ConvNet'
-iteration: 20000
-# synthesis_lr: 1.0
+iteration: 500
 synthesis_lr: 1.0
-batch_real: 100
+batch_real: 256
 init: 'real'
 dsa_strategy: "color_crop_cutout_flip_scale_rotate"
 dm_threshold: 100
 dsa: True
 plot_trigger: False
+
+dis_metric: 'ours'

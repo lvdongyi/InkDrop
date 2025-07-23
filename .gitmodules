@@ -1,0 +1,6 @@
+[submodule "third_party/poisoning_gradient_matching"]
+	path = third_party/poisoning_gradient_matching
+	url = https://github.com/lvdongyi/poisoning-gradient-matching.git
+[submodule "third_party/iba"]
+	path = third_party/iba
+	url = https://github.com/lvdongyi/iba.git

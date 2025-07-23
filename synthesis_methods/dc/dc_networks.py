@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import time
 
 
-def get_network(model, channel, num_classes, net_norm=None, img_size=(32, 32)):
+def get_network(model, channel, num_classes, img_size=(32, 32)):
     torch.random.manual_seed(int(time.time() * 1000) % 100000)
     net_width, net_depth, net_act, net_norm, net_pooling = get_default_convnet_setting()
 
@@ -107,6 +107,12 @@ def get_network(model, channel, num_classes, net_norm=None, img_size=(32, 32)):
 
     return net
 
+
+def get_default_convnet_setting():
+    net_width, net_depth, net_act, net_norm, net_pooling = 128, 3, 'relu', 'instancenorm', 'avgpooling'
+    return net_width, net_depth, net_act, net_norm, net_pooling
+
+
 # This code is based on:
 # https://github.com/csdongxian/ANP_backdoor/blob/main/models/anp_batchnorm.py
 
@@ -175,11 +181,6 @@ class MaskBatchNorm2d(nn.BatchNorm2d):
 
 
 
-def get_default_convnet_setting():
-    net_width, net_depth, net_act, net_norm, net_pooling = 128, 3, 'relu', 'instancenorm', 'avgpooling'
-    return net_width, net_depth, net_act, net_norm, net_pooling
-
-
 """
 MLP    ConvNet    LeNet    AlexNet    AlexNetBN    VGG    ResNet
 """
@@ -210,15 +211,13 @@ class MLP(nn.Module):
         return out
 
 
-# ConvNet
+''' ConvNet '''
 class ConvNet(nn.Module):
-    def __init__(self, channel, num_classes, net_width, net_depth, net_act, net_norm, net_pooling, im_size=(32, 32)):
+    def __init__(self, channel, num_classes, net_width=128, net_depth=3, net_act='relu', net_norm='none', net_pooling='avgpooling', im_size = (32,32)):
         super(ConvNet, self).__init__()
 
-        self.features, shape_feat = self._make_layers(channel, net_width, net_depth, net_norm, net_act, net_pooling,
-                                                      im_size)
-        num_feat = shape_feat[0] * shape_feat[1] * shape_feat[2]
-        # self.classifier = nn.Linear(num_feat, num_classes)
+        self.features, shape_feat = self._make_layers(channel, net_width, net_depth, net_norm, net_act, net_pooling, im_size)
+        num_feat = shape_feat[0]*shape_feat[1]*shape_feat[2]
         self.classifier = nn.Sequential(
             nn.Linear(num_feat, 192),
             nn.ReLU(inplace=True),
@@ -227,7 +226,7 @@ class ConvNet(nn.Module):
 
     def forward(self, x):
         out = self.features(x)
-        out = out.reshape(out.size(0), -1)
+        out = out.view(out.size(0), -1)
         out = self.classifier(out)
         return out
 
@@ -243,10 +242,8 @@ class ConvNet(nn.Module):
             return nn.ReLU(inplace=True)
         elif net_act == 'leakyrelu':
             return nn.LeakyReLU(negative_slope=0.01)
-        elif net_act == 'swish':
-            return Swish()
         else:
-            exit('unknown activation function: %s' % net_act)
+            exit('unknown activation function: %s'%net_act)
 
     def _get_pooling(self, net_pooling):
         if net_pooling == 'maxpooling':
@@ -256,7 +253,7 @@ class ConvNet(nn.Module):
         elif net_pooling == 'none':
             return None
         else:
-            exit('unknown net_pooling: %s' % net_pooling)
+            exit('unknown net_pooling: %s'%net_pooling)
 
     def _get_normlayer(self, net_norm, shape_feat):
         # shape_feat = (c*h*w)
@@ -273,7 +270,7 @@ class ConvNet(nn.Module):
         elif net_norm == 'none':
             return None
         else:
-            exit('unknown net_norm: %s' % net_norm)
+            exit('unknown net_norm: %s'%net_norm)
 
     def _make_layers(self, channel, net_width, net_depth, net_norm, net_act, net_pooling, im_size):
         layers = []
@@ -409,7 +406,6 @@ class AlexNetBN(nn.Module):
         x = x.reshape(x.size(0), -1)
         return x
 
-
 # VGG
 cfg_vgg = {
     'VGG11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
@@ -463,7 +459,6 @@ class VGG(nn.Module):
 
 def VGG11(channel, num_classes, image_size):
     return VGG('VGG11', channel, num_classes, image_size, norm='instancenorm')
-
 
 def VGG11BN(channel, num_classes):
     return VGG('VGG11', channel, num_classes, norm='batchnorm')
@@ -689,10 +684,9 @@ class ResNet(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        # out = F.avg_pool2d(out, 4)
-        out = F.adaptive_avg_pool2d(out, (1,1))
-        feature = out.view(out.size(0), -1)
-        out = self.classifier(feature)
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
         return out
 
     def embed(self, x):
@@ -701,10 +695,9 @@ class ResNet(nn.Module):
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.layer4(out)
-        # out = F.avg_pool2d(out, 4)
-        out = F.adaptive_avg_pool2d(out, (1,1))
-        feature = out.view(out.size(0), -1)
-        return feature
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        return out
 
 
 def ResNet18BN(channel, num_classes):
@@ -730,11 +723,3 @@ def ResNet101(channel, num_classes):
 def ResNet152(channel, num_classes):
     return ResNet(Bottleneck, [3, 8, 36, 3], channel=channel, num_classes=num_classes)
 
-if __name__ == '__main__':
-    net = get_network('ConvNet', 3, 10,img_size=(96, 96))
-    sd = torch.load('/home/user009/CODE/FedDOGE/results/dm/stl10/0606112702/consumer_model_mask_9000.pth')
-    
-    net.load_state_dict(sd)
-    print(net)
-    x = torch.randn(256, 3, 96, 96)
-    print(net(x).shape)

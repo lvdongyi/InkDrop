@@ -8,6 +8,7 @@
 # dm_threshold: generate synthesized images when the number of image of a specific class is greater than dm_threshold
 #
 ipc: 50
+dam_threshold: 50
 synthesis_model: 'ConvNet'
 iteration: 20000
 # synthesis_lr: 1.0
@@ -15,6 +16,9 @@ synthesis_lr: 1.0
 batch_real: 100
 init: 'real'
 dsa_strategy: "color_crop_cutout_flip_scale_rotate"
-dm_threshold: 100
 dsa: True
 plot_trigger: False
+
+lr_net: 0.01  # outer loop for network update
+zca: false  # boolean flag
+task_balance: 0.01

@@ -3,16 +3,22 @@ import copy
 import numpy as np
 import matplotlib.pyplot as plt
 
+from data_processing import MNIST
 from torchvision import datasets, transforms
+from data_processing.STL10 import STL10
+from data_processing.TinyImageNet import TinyImageNet
+from data_processing.dataset_configuration import get_dataset_info, get_datasets
 from hyperparams.general_params import general_args
+from hyperparams.log import logger
 from collections import defaultdict
-
+import torch.nn.functional as F
+import torch
 
 np.random.seed(2)
 
-
 class ImgDataLoader:
-    def __init__(self):
+    def __init__(self,start_time = None):
+        self.start_time = start_time
         self.train_set = None
         self.test_set = None
         self.dataset = general_args.dataset
@@ -21,8 +27,11 @@ class ImgDataLoader:
         self.img_classes = self._get_img_classes()
         self.local_dists = dict()
 
+        self.mapping = None # mapping from new class index to original class index, used by Tiny-ImageNet
+
     def _load_data(self):
-        # load image datasets
+        # self.train_set, self.test_set = get_datasets(self.dataset.lower())
+        # # load image datasets
         if self.dataset.lower() == 'cifar10':
             # 3 * 32 * 32
             transform_train = transforms.Compose([
@@ -54,8 +63,114 @@ class ImgDataLoader:
 
             self.train_set = datasets.CIFAR100(self.dataset_path, train=True, download=True, transform=transform_train)
             self.test_set = datasets.CIFAR100(self.dataset_path, train=False, download=True, transform=transform_test)
+        elif self.dataset.lower() in ['tiny','tiny-imagenet','tiny_imagenet']:
+            transform_train = transforms.Compose([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4802, 0.4481, 0.3975), (0.2770, 0.2691, 0.2821)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4802, 0.4481, 0.3975), (0.2770, 0.2691, 0.2821)),
+            ])
+            self.train_set = TinyImageNet(
+                root=self.dataset_path,
+                split='train',
+                transform=transform_train,
+                download=True,
+                num_classes=general_args.num_classes,
+                random_seed=2,
+                save_mapping=True,
+                start_time=self.start_time,
+            )
+            self.test_set = TinyImageNet(
+                root=self.dataset_path,
+                split='val',
+                transform=transform_test,
+                download=False,
+                num_classes=general_args.num_classes,
+                random_seed=2,
+                save_mapping=False,
+                start_time=self.start_time,
+            )
+            
+            # 获取映射
+            self.mapping = self.train_set.get_mapping()
+        elif self.dataset.lower() == 'stl10':
+            transform_train = transforms.Compose([
+                transforms.ToTensor(),
+                # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ])
+            self.train_set = STL10(self.dataset_path, split='train', download=True, transform=transform_train)
+            self.test_set = STL10(self.dataset_path, split='test', download=True, transform=transform_test)
+        elif self.dataset.lower() == 'mnist':
+            transform_train = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+            self.train_set = MNIST.MNIST(self.dataset_path, train=True, download=True, transform=transform_train)
+            self.test_set = MNIST.MNIST(self.dataset_path, train=False, download=True, transform=transform_test)
+            
+        elif self.dataset.lower() == 'fmnist':
+            # resize to 3*32*32
+            transform_train = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+            ])
+            self.train_set = MNIST.FashionMNIST(self.dataset_path, train=True, download=True, transform=transform_train)
+            self.test_set = MNIST.FashionMNIST(self.dataset_path, train=False, download=True, transform=transform_test)
+        elif self.dataset.lower() == 'svhn':
+            transform_train = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4377, 0.4438, 0.4728), (0.1980, 0.2010, 0.1970)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4377, 0.4438, 0.4728), (0.1980, 0.2010, 0.1970)),
+            ])
+            self.train_set = datasets.SVHN(self.dataset_path, split='train', download=True, transform=transform_train)
+            self.test_set = datasets.SVHN(self.dataset_path, split='test', download=True, transform=transform_test)
         else:
             raise ValueError('Unrecognized Image Dataset !')
+
+        # if self.dataset.lower() in ['mnist', 'fmnist']:
+        #     dataset_info = get_dataset_info(self.dataset.lower())
+        #     if dataset_info['img_size'] != (28,28):
+        #         resized_imgs = []
+        #         for img in self.train_set.data:
+        #             # 转换为 torch.Tensor 并添加批次和通道维度
+        #             img_tensor = torch.tensor(img).unsqueeze(0).unsqueeze(0).float()  # 形状: (1, 1, 28, 28)
+        #             # 执行插值
+        #             img_resized = F.interpolate(img_tensor, size=dataset_info['img_size'], mode='bilinear', align_corners=False)
+        #             # 移除批次和通道维度并转换回 NumPy
+        #             img_resized = img_resized.squeeze(0).squeeze(0).numpy()  # 形状: (32, 32)
+        #             resized_imgs.append(img_resized)
+        #         self.train_set.data = torch.tensor(resized_imgs)
+        #         resized_imgs = []
+        #         for img in self.test_set.data:
+        #             # 转换为 torch.Tensor 并添加批次和通道维度
+        #             img_tensor = torch.tensor(img).unsqueeze(0).unsqueeze(0).float()
+        #             # 执行插值
+        #             img_resized = F.interpolate(img_tensor, size=dataset_info['img_size'], mode='bilinear', align_corners=False)
+        #             # 移除批次和通道维度并转换回 NumPy
+        #             img_resized = img_resized.squeeze(0).squeeze(0).numpy()
+        #             resized_imgs.append(img_resized)
+        #         self.test_set.data = torch.tensor(resized_imgs)
 
     def _get_img_classes(self):
         # store images within the training dataset via a dict, i.e., {labels: [indices]}
@@ -84,13 +199,13 @@ class ImgDataLoader:
                 per_participant_list[user].extend(sampled_list)
                 img_classes[c] = img_classes[c][min(len(img_classes[c]), no_imgs):]
 
-        print("Local Distribution:")
+        logger.info("Local Distribution:")
         labels = np.array(self.train_set.targets)
         for i, client in per_participant_list.items():
             split = np.sum(labels[client].reshape(1, -1) == np.arange(no_classes).reshape(-1, 1), axis=1)
             self.local_dists[i] = split
-            print("    - Client {}:    {}".format(i, split))
-        print()
+            logger.info("    - Client {}:    {}".format(i, split))
+        logger.info("")
 
         return per_participant_list
 
@@ -119,7 +234,7 @@ class ImgDataLoader:
             data_per_provider_per_class = [np.maximum(1, nd // classes_per_provider) for nd in data_per_provider]
 
         if sum(data_per_provider) > n_data:
-            print("Impossible Split")
+            logger.info("Impossible Split")
             exit()
 
         for c in range(no_classes):
@@ -137,15 +252,17 @@ class ImgDataLoader:
 
                 budget -= take
                 c = (c + 1) % no_classes
+
+            client_idcs = sorted(client_idcs)
             per_participant_list[n] = client_idcs
 
-        print("Local Distribution:")
-        labels = np.array(self.train_set.targets)
+        logger.info("Local Distribution:")
+        labels = np.array(self.train_set.targets) if hasattr(self.train_set, 'targets') else np.array(self.train_set.labels)
         for i, client in per_participant_list.items():
             split = np.sum(labels[client].reshape(1, -1) == np.arange(no_classes).reshape(-1, 1), axis=1)
             self.local_dists[i] = split
-            print("    - Client {}:    {}".format(i, split))
-        print()
+            logger.info("    - Client {}:    {}".format(i, split))
+        logger.info("")
 
         return per_participant_list
 
@@ -190,7 +307,7 @@ def survey(results, category_names):
     return fig, ax
 
 
-if __name__ == '__main__':
+def main():
     # data splitting
     img_dataloader = ImgDataLoader()
     # per_participant_list = img_dataloader.sample_dirichlet_train_data()
@@ -206,6 +323,8 @@ if __name__ == '__main__':
     survey(vis_clients_list, classes)
     plt.show()
 
+if __name__ == '__main__':
+    main()
 
 
 

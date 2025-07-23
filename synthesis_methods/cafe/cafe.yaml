@@ -5,16 +5,29 @@
 # batch_real: batch size
 # init: initial point of the synthesized images ('random' or 'real'
 # dsa_strategy: the strategy of data augmentation
-# dm_threshold: generate synthesized images when the number of image of a specific class is greater than dm_threshold
+# cafe_threshold: generate synthesized images when the number of image of a specific class is greater than cafe_threshold
 #
 ipc: 50
 synthesis_model: 'ConvNet'
-iteration: 20000
+iteration: 2000
 # synthesis_lr: 1.0
 synthesis_lr: 1.0
 batch_real: 100
 init: 'real'
 dsa_strategy: "color_crop_cutout_flip_scale_rotate"
-dm_threshold: 100
+cafe_threshold: 100
 dsa: True
 plot_trigger: False
+
+# for dm
+lr_img: 0.1
+lr_net: 0.01
+fourth_weight: 0.1
+third_weight: 0.1
+second_weight: 1.0
+first_weight: 1.0
+inner_weight: 0.01
+lambda_1: 0.04
+lambda_2: 0.03
+dis_metric: 'ours'
+batch_train: 256
