@@ -1,7 +1,7 @@
 import os
 
 from tqdm import tqdm
-from backdoors import casev2_backdoor
+from backdoors import case_backdoor, doorping_backdoor, edge_case_backdoor, naive_backdoor, simple_backdoor, relax_backdoor, rdmdc_backdoor, edge_case_backdoor, casev2_backdoor
 from data_processing.dataset_configuration import get_dataset_info
 from synthesis_methods.cafe.cafe_utils import get_loops, get_dataset, get_network, get_eval_pool, evaluate_synset, get_daparam, \
     match_loss, get_time, TensorDataset, epoch, DiffAugment, ParamDiffAug
@@ -20,6 +20,13 @@ TRIGGER_FILE_PATH = f"../results/{general_args.synthesis_method}/{general_args.d
 
 
 class CAFE:
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
+    @edge_case_backdoor
+    @case_backdoor
     @casev2_backdoor
     def __init__(self, num_classes, syn_process, device, img_size, syn_hyperparams, channel=3):
         # hyper-parameters for DM
@@ -72,11 +79,21 @@ class CAFE:
         self.dis_metric = general_args.dis_metric
         self.batch_train = general_args.batch_train
 
+    @edge_case_backdoor
+    @case_backdoor
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
     @casev2_backdoor
     def synthesis(self, image_syn, label_syn, train_set, local_data, start_time, test_loader = None):
         self.outer_loop, self.inner_loop = get_loops(self.ipc)
         dataset_info = get_dataset_info(general_args.dataset)
         
+
+        @edge_case_backdoor
+        @case_backdoor
         @casev2_backdoor
         def get_images(self, c, n, return_idx=False, **kwargs):
             idx_shuffle = np.random.permutation(self.indices_class[c])[:n]

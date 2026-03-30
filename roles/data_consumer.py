@@ -1,6 +1,6 @@
 import copy
 import os
-from backdoors import casev2_backdoor
+from backdoors import case_backdoor, edge_case_backdoor, rdmdc_backdoor, simple_backdoor, relax_backdoor, doorping_backdoor, naive_backdoor, casev2_backdoor
 from synthesis_methods.cafe import cafe_utils
 from synthesis_methods.dc import dc_utils
 from synthesis_methods.dm.dm_networks import get_network
@@ -29,6 +29,8 @@ class TensorDataset(Dataset):
 
 
 class DataConsumer:
+    @edge_case_backdoor
+    # @case_backdoor
     def __init__(self, data_providers, attacker_list, syn_hyperparams, train_set, test_set, creat_time, device, backdoor_test_loader=None,defended_backdoor_test_loader=None):
         # load model
         num_classes = get_dataset_info(general_args.dataset)['num_classes']
@@ -158,7 +160,14 @@ class DataConsumer:
         acc_avg /= num_exp
         return loss_avg, acc_avg
 
+    @edge_case_backdoor
+    @case_backdoor
     @casev2_backdoor
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
     def _net_eval(self, dataloader, net, criterion, device, start_time):
         loss_avg, acc_avg, num_exp = 0, 0, 0
         net = net.to(device)

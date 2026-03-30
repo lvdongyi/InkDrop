@@ -3,7 +3,7 @@ import random
 
 import torchnet
 from tqdm import tqdm
-from backdoors import casev2_backdoor
+from backdoors import case_backdoor, edge_case_backdoor, doorping_backdoor, naive_backdoor, rdmdc_backdoor, simple_backdoor, relax_backdoor, casev2_backdoor
 
 from data_processing.dataset_configuration import get_dataset_info
 from synthesis_methods.idm.idm_utils import ParamDiffAug, DiffAugment, downscale, number_sign_augment, get_network
@@ -19,6 +19,13 @@ from hyperparams.log import logger
 
 TRIGGER_FILE_PATH = f"../results/{general_args.synthesis_method}/{general_args.dataset}/"
 class IDM:
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
+    @edge_case_backdoor
+    @case_backdoor
     @casev2_backdoor
     def __init__(self, num_classes, syn_process, device, img_size, syn_hyperparams, channel=3):
         # hyper-parameters for DM
@@ -59,6 +66,13 @@ class IDM:
         if self.batch_real < self.ipc:
             raise ValueError('Batch size of real images should be larger than the number of synthesized images.')
 
+    @edge_case_backdoor
+    @case_backdoor
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
     @casev2_backdoor
     def synthesis(self, image_syn, label_syn, train_set, local_data, start_time, test_loader = None,cache=False, **kwargs):
         if cache:
@@ -85,6 +99,8 @@ class IDM:
         self.trainable_classes = [c for c in range(self.num_classes)
                                   if len(self.indices_class[c]) >= self.idm_threshold]
 
+        @case_backdoor
+        @edge_case_backdoor
         @casev2_backdoor
         def get_images(self, c, n): # get random n images from class c
             if c is not None:

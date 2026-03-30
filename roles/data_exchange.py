@@ -1,13 +1,21 @@
 import os
+import os
+# 1. 先设环境变量
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3' 
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+
+# 2. 再导入 JAX 相关
+import jax
+import torch # PyTorch 也要在之后
 os.sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/..')
-from backdoors import casev2_backdoor
+from backdoors import case_backdoor, edge_case_backdoor, casev2_backdoor
 from hyperparams.general_params import general_args
 from hyperparams.log import logger
 import time
 
 import torch
 
-from data_processing.image_processing import ImgDataLoader
+from data_processing.image_processing.image_dataloader import ImgDataLoader
 from data_provider import DataProvider
 from data_consumer import DataConsumer
 def set_seed(seed):
@@ -69,6 +77,8 @@ class DataExchange:
 
         logger.info(general_args.__dict__)
 
+    @edge_case_backdoor
+    @case_backdoor
     @casev2_backdoor
     def create_providers(self, start_time, device, syn_hyperparams, local_data_per_provider, attacker_list):
         return [DataProvider(_id, local_data, start_time, True if _id in attacker_list else False, device, syn_hyperparams)

@@ -1,7 +1,7 @@
 import os
 from tqdm import tqdm
 
-from backdoors import casev2_backdoor
+from backdoors import case_backdoor, doorping_backdoor, naive_backdoor, simple_backdoor, relax_backdoor, rdmdc_backdoor, edge_case_backdoor, casev2_backdoor
 from synthesis_methods.dc.dc_utils import ParamDiffAug, DiffAugment, TensorDataset, epoch, get_loops, match_loss
 import torch
 import numpy as np
@@ -13,6 +13,13 @@ from hyperparams.log import logger
 from torch import nn
 TRIGGER_FILE_PATH = f"../results/{general_args.synthesis_method}/{general_args.dataset}/"
 class DC:
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
+    @edge_case_backdoor
+    @case_backdoor
     @casev2_backdoor
     def __init__(self, num_classes, syn_process, device, img_size, syn_hyperparams, channel=3):
         # hyperparameters
@@ -47,6 +54,13 @@ class DC:
         if self.batch_real < self.ipc:
             raise ValueError('Batch size of real images should be larger than IPC.')
 
+    @edge_case_backdoor
+    @case_backdoor
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
     @casev2_backdoor
     def synthesis(self, image_syn, label_syn, train_set, local_data, start_time, test_loader = None,cache = False, **kwargs):
         if cache:
@@ -63,6 +77,9 @@ class DC:
             else:
                 logger.info(f"Cached results not found. Generating new results...")
 
+
+        @case_backdoor
+        @edge_case_backdoor
         @casev2_backdoor
         def get_images(self, c, n, **kwargs):
             idx_shuffle = np.random.permutation(self.indices_class[c])[:n]

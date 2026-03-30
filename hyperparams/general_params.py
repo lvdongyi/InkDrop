@@ -27,7 +27,7 @@ def get_general_args():
 
     # 基础参数
     parser.add_argument('--data_type', default='image', type=str, help='数据类型')
-    parser.add_argument('--dataset', default='cifar10', type=str, help='数据集名称',choices=['cifar10','tiny-imagenet', 'stl10','mnist', 'fmnist', 'svhn'])
+    parser.add_argument('--dataset', default='cifar10', type=str, help='数据集名称',choices=['cifar10','tiny-imagenet', 'stl10','mnist', 'fmnist', 'svhn', 'imagenette'])
     parser.add_argument('--dataset_path', default='../bench_datasets/image_datasets', type=str, help='数据集路径')
     parser.add_argument('--dirichlet_alpha', default=0.05, type=float, help='Dirichlet分布参数')
     parser.add_argument('--classes_per_client', default=4, type=int, help='每个客户端的类别数')
@@ -40,7 +40,7 @@ def get_general_args():
     parser.add_argument('--whether_resume', default=0, type=int, choices=[0, 1], help='是否从检查点恢复')
     parser.add_argument('--resume_path', default='none', type=str, help='恢复路径')
     parser.add_argument('--resume_id', default=None, type=str, help='恢复的轮数')
-    parser.add_argument('--device_id', default=1, type=int, help='使用的设备ID')
+    parser.add_argument('--device_id', default=0, type=int, help='使用的设备ID')
     parser.add_argument('--device_num', default=1, type=int, help='设备数量')
 
     parser.add_argument('--synthesis_method', default=synthesis_methods[0], type=str, choices=synthesis_methods, help='合成方法')
@@ -61,7 +61,24 @@ def get_general_args():
 
     parser.add_argument('--atk_eps', default=0.5, type=float, help='攻击eps，mnist要3.0')
     parser.add_argument('--attack_to', default=-1, type=int, help='attack target, only applicable for casev2, -1 means best target')
-
+    parser.add_argument('--j_alpha', default=0.5, type=float, help='期刊rebuttal新增alpha')
+    parser.add_argument('--mal_pool_ratio', default=0.2, type=float, help='mal_pool_indices截取比例，保留前N%的样本（仅用于casev2）')
+    parser.add_argument('--golden_pool_ratio', default=0.2, type=float, help='golden_indices截取比例，保留前N%的样本（仅用于casev2）')
+    
+    # casev2 触发器训练的超参数（默认保持与当前硬编码一致）
+    # Soft/EMD 权重
+    parser.add_argument('--lambda_soft_main', default=2.25, type=float, help='casev2 soft/EMD loss 权重（默认其他数据集）')
+    parser.add_argument('--lambda_soft_stl', default=3.0, type=float, help='casev2 soft/EMD loss 权重（stl10/tiny-imagenet）')
+    # Contrastive 权重与温度
+    parser.add_argument('--lambda_contrast_main', default=0.65, type=float, help='casev2 contrastive loss 权重（默认其他数据集）')
+    parser.add_argument('--lambda_contrast_stl', default=1.0, type=float, help='casev2 contrastive loss 权重（stl10/tiny-imagenet）')
+    parser.add_argument('--contrast_tau', default=0.2, type=float, help='casev2 contrastive loss 温度系数')
+    # L2 与 LPIPS 权重（按模型类型分支）
+    parser.add_argument('--lambda_l2', default=1.25, type=float, help='casev2 L2 loss 权重（非 AlexNetBN）')
+    parser.add_argument('--lambda_l2_alex', default=0.15, type=float, help='casev2 L2 loss 权重（AlexNetBN）')
+    parser.add_argument('--lambda_lpips', default=1.25, type=float, help='casev2 LPIPS loss 权重（非 AlexNetBN）')
+    parser.add_argument('--lambda_lpips_alex', default=0.2, type=float, help='casev2 LPIPS loss 权重（AlexNetBN）')
+    
     # 判断是否在命令行环境下运行
     if len(sys.argv) > 1 and not sys.argv[0].endswith('ipykernel_launcher.py'):
         known_args, remaining_argv = parser.parse_known_args()

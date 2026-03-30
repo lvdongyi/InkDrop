@@ -145,6 +145,35 @@ class ImgDataLoader:
             ])
             self.train_set = datasets.SVHN(self.dataset_path, split='train', download=True, transform=transform_train)
             self.test_set = datasets.SVHN(self.dataset_path, split='test', download=True, transform=transform_test)
+        elif self.dataset.lower() == 'imagenette':
+            from torchvision.datasets import Imagenette
+            
+            transform_train = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ])
+            transform_test = transforms.Compose([
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+            ])
+            self.train_set = Imagenette(
+                root=self.dataset_path,
+                split='train',
+                download=True,
+                transform=transform_train
+            )
+            self.test_set = Imagenette(
+                root=self.dataset_path,
+                split='val',
+                download=False,
+                transform=transform_test
+            )
+            self.train_set.labels = [l for _, l in self.train_set._samples]
+            self.test_set.labels = [l for _, l in self.test_set._samples]
+
         else:
             raise ValueError('Unrecognized Image Dataset !')
 

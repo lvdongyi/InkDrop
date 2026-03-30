@@ -1,3 +1,4 @@
+# Implementation of "InkDrop: Invisible Backdoor Attacks Against Dataset Condensation"
 # Usage
 
 1. 修改synthesis_methods下对应方法的yaml配置文件

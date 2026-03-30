@@ -94,6 +94,14 @@ def get_dataset_info(dataset):
         data['std'] = (0.1980, 0.2010, 0.1970)
         data['attack_from'] = -1
         data['attack_to'] = 0
+    elif dataset.lower() == 'imagenette':
+        data['dataset_length'] = 9469
+        data['num_classes'] = 10
+        data['img_size'] = (224, 224)
+        data['mean'] = (0.485, 0.456, 0.406)
+        data['std'] = (0.229, 0.224, 0.225)
+        data['attack_from'] = -1
+        data['attack_to'] = 0
     else:
         raise ValueError('Unrecognized Image Dataset !')
     data['min'] = ((np.array([0,0,0]) - np.array(data['mean'])) / np.array(data['std'])).min()
@@ -119,6 +127,8 @@ def get_dataset_obj(dataset):
         return MNIST.FashionMNIST
     elif dataset.lower() == 'svhn':
         return torchvision.datasets.SVHN
+    elif dataset.lower() == 'imagenette':
+        return torchvision.datasets.Imagenette
     else:
         raise ValueError('Unrecognized Image Dataset !')
     
@@ -192,6 +202,36 @@ def get_datasets(name, resize=False):
             download=True, 
             transform=transform_test
         )
+    elif name.lower() in ['imagenette']:
+        # ImageNet 预训练常用的 mean/std，以及默认的输入尺寸 224×224
+        mean = (0.485, 0.456, 0.406)
+        std  = (0.229, 0.224, 0.225)
+        transform_train = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ])
+        transform_test = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std),
+        ])
+        # 这里假设 get_dataset_obj('imagenette') 返回一个支持 split='train'/'val'，download=True 的 Imagenette loader
+        train_dataset = get_dataset_obj(name)(
+            root='../bench_datasets/image_datasets/imagenette',
+            split='train',
+            download=True,
+            transform=transform_train
+        )
+        test_dataset = get_dataset_obj(name)(
+            root='../bench_datasets/image_datasets/imagenette',
+            split='val',
+            download=False,
+            transform=transform_test
+        )
+        train_dataset.labels = [l for _, l in train_dataset._samples]
+        test_dataset.labels = [l for _, l in test_dataset._samples]
+
     else:
         transform_train = transforms.Compose([
                 transforms.ToTensor(),

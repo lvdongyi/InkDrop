@@ -4,7 +4,19 @@ import torch.nn.functional as F
 import time
 
 
-def get_network(model, channel, num_classes, net_norm=None, img_size=(32, 32)):
+def get_network(model, channel, num_classes, net_norm=None, img_size=(32, 32), embedding_dim=None, num_layers=None):
+    """
+    获取网络模型
+    
+    Args:
+        model: 模型名称
+        channel: 输入通道数
+        num_classes: 类别数
+        net_norm: 归一化方式
+        img_size: 图像尺寸
+        embedding_dim: CCT模型的嵌入维度（可选，默认256）
+        num_layers: CCT模型的Transformer层数（可选，默认7）
+    """
     torch.random.manual_seed(int(time.time() * 1000) % 100000)
     net_width, net_depth, net_act, net_norm, net_pooling = get_default_convnet_setting()
 
@@ -100,6 +112,12 @@ def get_network(model, channel, num_classes, net_norm=None, img_size=(32, 32)):
     elif model == 'ConvNetAP':
         net = ConvNet(channel=channel, num_classes=num_classes, net_width=net_width, net_depth=net_depth,
                       net_act=net_act, net_norm=net_norm, net_pooling='avgpooling', im_size=img_size)
+    elif model == 'CCT':
+        # 使用传入的参数，如果未指定则使用默认值
+        cct_embedding_dim = embedding_dim if embedding_dim is not None else 256
+        cct_num_layers = num_layers if num_layers is not None else 7
+        net = CCT(n_input_channels=channel, num_classes=num_classes, img_size=img_size[0],
+                  embedding_dim=cct_embedding_dim, num_layers=cct_num_layers)
 
     else:
         net = None
@@ -114,6 +132,376 @@ from torch import Tensor
 import torch.nn.init as init
 from torch.nn.parameter import Parameter
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+import math
+
+# ==========================================
+# 1. CCT 模型定义 (Model Definition)
+# ==========================================
+
+class Tokenizer(nn.Module):
+    """
+    卷积 Tokenizer：替代 ViT 中的 Patch Embedding。
+    使用卷积层提取低级特征，引入归纳偏置，适合小数据集。
+    """
+    def __init__(self, kernel_size, stride, padding, pooling_kernel, pooling_stride,
+                 pooling_padding, n_conv_layers, n_input_channels, n_output_channels,
+                 in_planes=64, activation=None, max_pool=True):
+        super(Tokenizer, self).__init__()
+
+        n_filter_list = [n_input_channels] + \
+                        [in_planes for _ in range(n_conv_layers - 1)] + \
+                        [n_output_channels]
+
+        self.conv_layers = nn.Sequential()
+        for i in range(n_conv_layers):
+            self.conv_layers.add_module(
+                f'conv_{i}',
+                nn.Conv2d(n_filter_list[i], n_filter_list[i + 1],
+                          kernel_size=kernel_size,
+                          stride=stride,
+                          padding=padding, bias=False)
+            )
+            self.conv_layers.add_module(f'relu_{i}', nn.ReLU())
+            if max_pool:
+                self.conv_layers.add_module(
+                    f'maxpool_{i}',
+                    nn.MaxPool2d(kernel_size=pooling_kernel,
+                                 stride=pooling_stride,
+                                 padding=pooling_padding)
+                )
+
+        self.flattener = nn.Flatten(2, 3) # (B, C, H, W) -> (B, C, H*W)
+
+    def forward(self, x):
+        return self.flattener(self.conv_layers(x)).transpose(1, 2) # 输出 (B, Seq_Len, Dim)
+
+
+class Attention(nn.Module):
+    """标准的 Multi-Head Self-Attention，使用分块计算以节省内存"""
+    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., chunk_size=None):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+        self.chunk_size = chunk_size  # 分块大小，None表示不分块
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        # qkv shape: (B, N, 3, Heads, Head_Dim)
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        # 如果序列长度较大，使用分块注意力以节省内存
+        if self.chunk_size is not None and N > self.chunk_size:
+            # 分块计算注意力
+            chunk_size = self.chunk_size
+            num_chunks = (N + chunk_size - 1) // chunk_size
+            outputs = []
+            
+            for i in range(num_chunks):
+                start_idx = i * chunk_size
+                end_idx = min((i + 1) * chunk_size, N)
+                q_chunk = q[:, :, start_idx:end_idx, :]  # (B, num_heads, chunk_size, head_dim)
+                
+                # 计算注意力分数: (B, num_heads, chunk_size, N)
+                attn_chunk = (q_chunk @ k.transpose(-2, -1)) * self.scale
+                attn_chunk = attn_chunk.softmax(dim=-1)
+                attn_chunk = self.attn_drop(attn_chunk)
+                
+                # 应用注意力到value: (B, num_heads, chunk_size, head_dim)
+                out_chunk = attn_chunk @ v
+                outputs.append(out_chunk)
+            
+            # 合并所有chunk: (B, num_heads, N, head_dim)
+            x = torch.cat(outputs, dim=2)
+        else:
+            # 原始计算方式（当序列长度较小时）
+            attn = (q @ k.transpose(-2, -1)) * self.scale
+            attn = attn.softmax(dim=-1)
+            attn = self.attn_drop(attn)
+            x = attn @ v
+
+        x = x.transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+class TransformerEncoderLayer(nn.Module):
+    """Transformer Encoder Block: Attention + MLP"""
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0., chunk_size=None):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim)
+        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, chunk_size=chunk_size)
+        self.norm2 = nn.LayerNorm(dim)
+        
+        hidden_features = int(dim * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, hidden_features),
+            nn.GELU(),
+            nn.Dropout(drop),
+            nn.Linear(hidden_features, dim),
+            nn.Dropout(drop)
+        )
+
+    def forward(self, x):
+        x = x + self.attn(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+# class CCT(nn.Module):
+#     def __init__(self, 
+#                  img_size=32, 
+#                  embedding_dim=256, 
+#                  n_input_channels=3, 
+#                  n_conv_layers=1, 
+#                  kernel_size=3, 
+#                  stride=1, 
+#                  padding=1, 
+#                  pooling_kernel=3, 
+#                  pooling_stride=2, 
+#                  pooling_padding=1,
+#                  num_layers=7, 
+#                  num_heads=4, 
+#                  mlp_ratio=2., 
+#                  num_classes=10,
+#                  positional_embedding='learnable'):
+#         super(CCT, self).__init__()
+
+#         # 1. Tokenizer (卷积层)
+#         self.tokenizer = Tokenizer(n_conv_layers=n_conv_layers,
+#                                    n_input_channels=n_input_channels,
+#                                    n_output_channels=embedding_dim,
+#                                    kernel_size=kernel_size,
+#                                    stride=stride,
+#                                    padding=padding,
+#                                    pooling_kernel=pooling_kernel,
+#                                    pooling_stride=pooling_stride,
+#                                    pooling_padding=pooling_padding)
+
+#         # 2. Positional Embedding
+#         # 计算 Tokenizer 输出后的序列长度
+#         # 简单估算：对于 CIFAR-10 (32x32)，经过一次 stride=2 的池化，变为 16x16 = 256
+#         self.sequence_length = self._get_sequence_length(img_size, n_input_channels)
+        
+#         # 根据序列长度自动设置chunk_size以节省内存
+#         # 对于大图像（如STL-10的96x96），序列长度可能超过2000，使用分块注意力
+#         if self.sequence_length > 1000:
+#             # 设置chunk_size为512，这样可以显著减少内存使用
+#             attn_chunk_size = 512
+#         elif self.sequence_length > 500:
+#             attn_chunk_size = 256
+#         else:
+#             # 小图像不需要分块
+#             attn_chunk_size = None
+        
+#         if positional_embedding == 'learnable':
+#             self.position_embedding = nn.Parameter(torch.zeros(1, self.sequence_length, embedding_dim))
+#             nn.init.trunc_normal_(self.position_embedding, std=0.02)
+#         else:
+#             # 也可以实现正弦位置编码，这里简化为可学习
+#             self.position_embedding = nn.Parameter(torch.zeros(1, self.sequence_length, embedding_dim))
+
+#         self.dropout = nn.Dropout(p=0.1)
+
+#         # 3. Transformer Encoder
+#         self.blocks = nn.ModuleList([
+#             TransformerEncoderLayer(dim=embedding_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, chunk_size=attn_chunk_size)
+#             for _ in range(num_layers)
+#         ])
+        
+#         self.norm = nn.LayerNorm(embedding_dim)
+
+#         # 4. Sequence Pooling (CCT 特有的分类头)
+#         # 将所有 Token 加权平均，而不是只取 [CLS] Token
+#         self.attention_pool = nn.Linear(embedding_dim, 1)
+#         self.fc = nn.Linear(embedding_dim, num_classes)
+
+#     def _get_sequence_length(self, img_size, ch):
+#         # 辅助函数：通过跑一次假数据来确定序列长度
+#         dummy = torch.zeros(1, ch, img_size, img_size)
+#         out = self.tokenizer(dummy)
+#         return out.shape[1]
+
+#     def forward(self, x):
+#         # x: (B, C, H, W)
+#         x = self.tokenizer(x)  # (B, N, Dim)
+        
+#         # Add Position Embedding
+#         x = x + self.position_embedding
+#         x = self.dropout(x)
+
+#         # Transformer Blocks
+#         for blk in self.blocks:
+#             x = blk(x)
+        
+#         x = self.norm(x)
+
+#         # Sequence Pooling
+#         # x shape: (B, N, Dim)
+#         # attention_pool 输出: (B, N, 1) -> softmax -> (B, N, 1)
+#         attn_weights = F.softmax(self.attention_pool(x), dim=1)
+#         # 加权平均: (B, N, 1)^T * (B, N, Dim) -> (B, 1, N) * (B, N, Dim) -> (B, 1, Dim)
+#         x = torch.matmul(attn_weights.transpose(1, 2), x).squeeze(1) # (B, Dim)
+
+#         # Classifier
+#         x = self.fc(x)
+#         return x
+#     def embed(self, x):
+#         """
+#         提取特征嵌入（不经过分类头）
+#         返回: (B, embedding_dim) 特征向量
+#         """
+#         # x: (B, C, H, W)
+#         x = self.tokenizer(x)  # (B, N, Dim)
+        
+#         # Add Position Embedding
+#         x = x + self.position_embedding
+#         x = self.dropout(x)
+
+#         # Transformer Blocks
+#         for blk in self.blocks:
+#             x = blk(x)
+        
+#         x = self.norm(x)
+
+#         # Sequence Pooling（与 forward 相同，但不经过分类头）
+#         attn_weights = F.softmax(self.attention_pool(x), dim=1)
+#         x = torch.matmul(attn_weights.transpose(1, 2), x).squeeze(1) # (B, Dim)
+        
+#         return x  # 返回 (B, embedding_dim)，不经过 self.fc
+
+class CCT(nn.Module):
+    def __init__(self, 
+                 img_size=32, 
+                 embedding_dim=128, 
+                 n_input_channels=3, 
+                 n_conv_layers=2, 
+                 kernel_size=3, 
+                 stride=1, 
+                 padding=1, 
+                 pooling_kernel=3, 
+                 pooling_stride=2, 
+                 pooling_padding=1,
+                 num_layers=4, 
+                 num_heads=2, 
+                 mlp_ratio=2, 
+                 num_classes=10,
+                 positional_embedding='learnable'):
+        super(CCT, self).__init__()
+
+        # 1. Tokenizer (卷积层)
+        self.tokenizer = Tokenizer(n_conv_layers=n_conv_layers,
+                                   n_input_channels=n_input_channels,
+                                   n_output_channels=embedding_dim,
+                                   kernel_size=kernel_size,
+                                   stride=stride,
+                                   padding=padding,
+                                   pooling_kernel=pooling_kernel,
+                                   pooling_stride=pooling_stride,
+                                   pooling_padding=pooling_padding)
+
+        # 2. Positional Embedding
+        # 计算 Tokenizer 输出后的序列长度
+        # 简单估算：对于 CIFAR-10 (32x32)，经过一次 stride=2 的池化，变为 16x16 = 256
+        self.sequence_length = self._get_sequence_length(img_size, n_input_channels)
+        
+        # 根据序列长度自动设置chunk_size以节省内存
+        # 对于大图像（如STL-10的96x96），序列长度可能超过2000，使用分块注意力
+        if self.sequence_length > 1000:
+            # 设置chunk_size为512，这样可以显著减少内存使用
+            attn_chunk_size = 512
+        elif self.sequence_length > 500:
+            attn_chunk_size = 256
+        else:
+            # 小图像不需要分块
+            attn_chunk_size = None
+        
+        if positional_embedding == 'learnable':
+            self.position_embedding = nn.Parameter(torch.zeros(1, self.sequence_length, embedding_dim))
+            nn.init.trunc_normal_(self.position_embedding, std=0.02)
+        else:
+            # 也可以实现正弦位置编码，这里简化为可学习
+            self.position_embedding = nn.Parameter(torch.zeros(1, self.sequence_length, embedding_dim))
+
+        self.dropout = nn.Dropout(p=0.1)
+
+        # 3. Transformer Encoder
+        self.blocks = nn.ModuleList([
+            TransformerEncoderLayer(dim=embedding_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, chunk_size=attn_chunk_size)
+            for _ in range(num_layers)
+        ])
+        
+        self.norm = nn.LayerNorm(embedding_dim)
+
+        # 4. Sequence Pooling (CCT 特有的分类头)
+        # 将所有 Token 加权平均，而不是只取 [CLS] Token
+        self.attention_pool = nn.Linear(embedding_dim, 1)
+        self.fc = nn.Linear(embedding_dim, num_classes)
+
+    def _get_sequence_length(self, img_size, ch):
+        # 辅助函数：通过跑一次假数据来确定序列长度
+        dummy = torch.zeros(1, ch, img_size, img_size)
+        out = self.tokenizer(dummy)
+        return out.shape[1]
+
+    def forward(self, x):
+        # x: (B, C, H, W)
+        x = self.tokenizer(x)  # (B, N, Dim)
+        
+        # Add Position Embedding
+        x = x + self.position_embedding
+        x = self.dropout(x)
+
+        # Transformer Blocks
+        for blk in self.blocks:
+            x = blk(x)
+        
+        x = self.norm(x)
+
+        # Sequence Pooling
+        # x shape: (B, N, Dim)
+        # attention_pool 输出: (B, N, 1) -> softmax -> (B, N, 1)
+        attn_weights = F.softmax(self.attention_pool(x), dim=1)
+        # 加权平均: (B, N, 1)^T * (B, N, Dim) -> (B, 1, N) * (B, N, Dim) -> (B, 1, Dim)
+        x = torch.matmul(attn_weights.transpose(1, 2), x).squeeze(1) # (B, Dim)
+
+        # Classifier
+        x = self.fc(x)
+        return x
+    def embed(self, x):
+        """
+        提取特征嵌入（不经过分类头）
+        返回: (B, embedding_dim) 特征向量
+        """
+        # x: (B, C, H, W)
+        x = self.tokenizer(x)  # (B, N, Dim)
+        
+        # Add Position Embedding
+        x = x + self.position_embedding
+        x = self.dropout(x)
+
+        # Transformer Blocks
+        for blk in self.blocks:
+            x = blk(x)
+        
+        x = self.norm(x)
+
+        # Sequence Pooling（与 forward 相同，但不经过分类头）
+        attn_weights = F.softmax(self.attention_pool(x), dim=1)
+        x = torch.matmul(attn_weights.transpose(1, 2), x).squeeze(1) # (B, Dim)
+        
+        return x  # 返回 (B, embedding_dim)，不经过 self.fc
 
 class MaskBatchNorm2d(nn.BatchNorm2d):
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
@@ -234,6 +622,11 @@ class ConvNet(nn.Module):
     def embed(self, x):
         out = self.features(x)
         out = out.view(out.size(0), -1)
+        return out
+    
+    def embedding(self,x):
+        out = self.features(x)  # [B, C, H, W]
+        out = out.view(out.size(0), -1)  # [B, C]
         return out
 
     def _get_activation(self, net_act):

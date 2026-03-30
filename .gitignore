@@ -19,9 +19,12 @@ test/*
 notebooks/*
 *.out
 *.log
+*.pt
+*.sh
 tasks/tasks.json
 all_results/
 plot/*
+*.yaml
 auxiliary_datasets/*
 third_party/bench_datasets/*
 tasks/*.json

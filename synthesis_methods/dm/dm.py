@@ -1,7 +1,7 @@
 import os
 
 from tqdm import tqdm
-from backdoors import casev2_backdoor
+from backdoors import case_backdoor, edge_case_backdoor, doorping_backdoor, naive_backdoor, rdmdc_backdoor, simple_backdoor, relax_backdoor, casev2_backdoor
 
 from synthesis_methods.dm.dm_utils import ParamDiffAug, DiffAugment
 
@@ -14,6 +14,13 @@ from hyperparams.general_params import general_args
 from hyperparams.log import logger
 TRIGGER_FILE_PATH = f"../results/{general_args.synthesis_method}/{general_args.dataset}/"
 class DM:
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
+    @edge_case_backdoor
+    @case_backdoor
     @casev2_backdoor
     def __init__(self, num_classes, syn_process, device, img_size, syn_hyperparams, channel=3):
         # hyper-parameters for DM
@@ -54,17 +61,26 @@ class DM:
         if self.batch_real < self.ipc:
             raise ValueError('Batch size of real images should be larger than the number of synthesized images.')
 
+    @edge_case_backdoor
+    @case_backdoor
+    @doorping_backdoor
+    @naive_backdoor
+    @simple_backdoor
+    @relax_backdoor
+    @rdmdc_backdoor
     @casev2_backdoor
     def synthesis(self, image_syn, label_syn, train_set, local_data, start_time, test_loader = None, attack_info = None, cache = False):
         if cache:
-            if os.path.exists(os.path.join(TRIGGER_FILE_PATH,f'result0_trim_cached_{self.syn_model}_20000_{self.init}_ipc{general_args.ipc}.pt')):
-                logger.info(f"Loading cached results of iteration 20000...")
-                result0_trim = torch.load(os.path.join(TRIGGER_FILE_PATH,f'result0_trim_cached_{self.syn_model}_20000_{self.init}_ipc{general_args.ipc}.pt'), map_location=self.device)
-                result1_trim = torch.load(os.path.join(TRIGGER_FILE_PATH,f'result1_trim_cached_{self.syn_model}_20000_{self.init}_ipc{general_args.ipc}.pt'), map_location=self.device)
+            if os.path.exists(os.path.join(TRIGGER_FILE_PATH,f'result0_trim_cached_{self.syn_model}_10000_{self.init}_ipc{general_args.ipc}.pt')):
+                logger.info(f"Loading cached results of iteration 10000...")
+                result0_trim = torch.load(os.path.join(TRIGGER_FILE_PATH,f'result0_trim_cached_{self.syn_model}_10000_{self.init}_ipc{general_args.ipc}.pt'), map_location=self.device)
+                result1_trim = torch.load(os.path.join(TRIGGER_FILE_PATH,f'result1_trim_cached_{self.syn_model}_10000_{self.init}_ipc{general_args.ipc}.pt'), map_location=self.device)
                 return result0_trim, result1_trim
             else:
                 logger.info(f"Cached results not found. Generating new results...")
 
+        @edge_case_backdoor
+        @case_backdoor
         @casev2_backdoor
         def get_images(self, c, n, return_idx=False, **kwargs):
             idx_shuffle = np.random.permutation(self.indices_class[c])[:n]

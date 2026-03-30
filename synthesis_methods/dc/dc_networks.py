@@ -101,6 +101,7 @@ def get_network(model, channel, num_classes, img_size=(32, 32)):
         net = ConvNet(channel=channel, num_classes=num_classes, net_width=net_width, net_depth=net_depth,
                       net_act=net_act, net_norm=net_norm, net_pooling='avgpooling', im_size=img_size)
 
+
     else:
         net = None
         exit('unknown model: %s' % model)
