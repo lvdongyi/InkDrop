@@ -1,4 +1,5 @@
 # InkDrop: Invisible Backdoor Attacks Against Dataset Condensation
+[![arXiv](https://img.shields.io/badge/arXiv-2603.28092-red.svg)](https://arxiv.org/abs/2603.28092)
 
 ## ⚠️ Authorship Dispute Notice / 署名争议声明
 
