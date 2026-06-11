@@ -9,7 +9,8 @@ Upon resubmission to IEEE Transactions on Dependable and Secure Computing (TDSC)
 
 This notice is made to ensure transparent attribution of this work.
 
-![Editor correspondence](docs/editor_feedback.png)
+<img width="1206" height="652" alt="image" src="https://github.com/user-attachments/assets/47e47930-4ec4-4125-997f-c5d5e0d5073c" />
+
 
 ---
 
